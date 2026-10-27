@@ -1,4 +1,4 @@
-# CoFlow-5 Synapse
+# traffix
 
 A reliable AI decision platform for urban traffic simulation, built on Eclipse SUMO by six
 ESPRIT 4DS students for the course *Intelligent Multi-Agent Traffic Management*.
