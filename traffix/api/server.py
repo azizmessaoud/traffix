@@ -23,24 +23,28 @@ which reads from the supermaster's live run; it never reaches the masters or SUM
   GET  /api/results                         experiment summary (if available)
   GET  /api/models                          training metrics
 """
+import hmac
 import json
 import os
+import threading
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..agents.network.explainer import ExplainerAgent
 from ..core import config
 from ..synapse.coflow_bridge import TraffixSynapse
-from .live import LiveRun
+from .live import LiveRun, SUMO_HOME
 
 app = FastAPI(title="TraffiX API")
 SETTINGS = {"gui": False}       # set by scripts/run_live.py --gui
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 RUN = {"live": None}
+RUN_LOCK = threading.Lock()
 
 
 class Question(BaseModel):
@@ -64,6 +68,26 @@ class Decision(BaseModel):
     decision: str          # "approve" | "dismiss"
 
 
+class IncidentRequest(BaseModel):
+    request_id: UUID
+    edge_id: str = Field(min_length=1, max_length=128)
+    lane_index: int = Field(ge=0, le=16)
+    duration_seconds: int = Field(ge=10, le=1800)
+
+
+def require_operator(authorization: str | None):
+    """Local runs may omit a token; hosted runs must set TRAFFIX_OPERATOR_TOKEN."""
+    expected = os.environ.get("TRAFFIX_OPERATOR_TOKEN", "")
+    required = os.environ.get("TRAFFIX_REQUIRE_OPERATOR_TOKEN", "").lower() in {"1", "true", "yes"}
+    if required and not expected:
+        raise HTTPException(503, "Operator access is not configured")
+    if not expected and not required:
+        return
+    supplied = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(401, "A valid operator token is required")
+
+
 def live():
     if RUN["live"] is None:
         raise HTTPException(409, "No live run. POST /api/start first.")
@@ -84,24 +108,69 @@ def controllers():
     return LIVE_CONTROLLERS
 
 
+@app.get("/health")
+def health():
+    sumo_binary = "sumo.exe" if os.name == "nt" else "sumo"
+    sumo_ready = os.path.isfile(os.path.join(SUMO_HOME, "bin", sumo_binary))
+    network_ready = os.path.isfile(config.network_files()[0])
+    frontend_ready = os.path.isfile(config.path("frontend", "dist", "index.html"))
+    status = "ready" if sumo_ready and network_ready and frontend_ready else "not_ready"
+    result = {"status": status, "sumo": sumo_ready, "network": network_ready, "frontend": frontend_ready}
+    if status != "ready":
+        raise HTTPException(503, result)
+    return result
+
+
 @app.post("/api/start")
-def start(scenario: str = "morning_peak", speed: float = 4.0, seed: int = 1, controller: str = "traffix"):
+def start(scenario: str = "morning_peak", speed: float = 4.0, seed: int = 1, controller: str = "traffix",
+          authorization: str | None = Header(default=None)):
+    require_operator(authorization)
+    if not 0.25 <= speed <= 16:
+        raise HTTPException(422, "Speed must be between 0.25× and 16×")
+    if not 1 <= seed <= 2_147_483_647:
+        raise HTTPException(422, "Seed must be between 1 and 2147483647")
     if scenario not in config.scenarios():
         raise HTTPException(404, f"Unknown scenario {scenario}")
     if controller not in LIVE_CONTROLLERS:
         raise HTTPException(404, f"Unknown controller {controller}")
-    if RUN["live"] and not RUN["live"].stop():
-        raise HTTPException(409, "The previous run is still stopping. Try again in a few seconds.")
-    RUN["live"] = LiveRun(scenario, seed, speed, controller, gui=SETTINGS["gui"])
-    RUN["live"].start()
-    return {"started": scenario, "speed": speed, "controller": controller}
+    with RUN_LOCK:
+        if RUN["live"] and not RUN["live"].stop():
+            raise HTTPException(409, "The previous run is still stopping. Try again in a few seconds.")
+        RUN["live"] = LiveRun(scenario, seed, speed, controller, gui=SETTINGS["gui"])
+        RUN["live"].start()
+    return {"started": scenario, "speed": speed, "seed": seed, "controller": controller}
 
 
 @app.post("/api/stop")
-def stop():
-    if RUN["live"]:
-        RUN["live"].stop()
+def stop(authorization: str | None = Header(default=None)):
+    require_operator(authorization)
+    with RUN_LOCK:
+        if RUN["live"]:
+            RUN["live"].stop()
     return {"stopped": True}
+
+
+@app.get("/api/event-options")
+def event_options():
+    lv = live()
+    return {"types": ["incident"], "max_active": 20,
+            "duration_seconds": {"minimum": 10, "maximum": 1800},
+            "edges": lv.incident_options}
+
+
+@app.post("/api/events")
+def inject_event(body: IncidentRequest, authorization: str | None = Header(default=None)):
+    require_operator(authorization)
+    try:
+        event = live().enqueue_incident(body.edge_id, body.lane_index, body.duration_seconds, body.request_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return event
+
+
+@app.get("/api/events")
+def events():
+    return live().state().get("world_events", [])
 
 
 @app.get("/api/state")
@@ -156,7 +225,8 @@ def trip(origin: str, destination: str):
 
 
 @app.post("/api/ask")
-def ask(body: Question):
+def ask(body: Question, authorization: str | None = Header(default=None)):
+    require_operator(authorization)
     lv = live()
     tools = {"get_live_state": lambda: lv.copilot.context() if hasattr(lv, "copilot") else lv.state(),
              "get_results": lambda measure="": [r for r in results()["summary"]
@@ -206,17 +276,20 @@ def llm_status():
 
 
 @app.get("/api/copilot")
-def copilot(lang: str = "en"):
+def copilot(lang: str = "en", authorization: str | None = Header(default=None)):
+    require_operator(authorization)
     return live().copilot.summary(lang)
 
 
 @app.post("/api/copilot/report")
-def copilot_report(lang: str = "en"):
+def copilot_report(lang: str = "en", authorization: str | None = Header(default=None)):
+    require_operator(authorization)
     return live().copilot.report(lang)
 
 
 @app.post("/api/copilot/decision")
-def copilot_decision(body: Decision):
+def copilot_decision(body: Decision, authorization: str | None = Header(default=None)):
+    require_operator(authorization)
     lv = live()
     entry = lv.copilot.decide(body.suggestion_id, body.title, body.decision, lv.state().get("t", 0))
     return {"recorded": True, "log_id": entry, "applied": False}

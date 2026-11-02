@@ -2,7 +2,13 @@
 import { useEffect, useState } from "react";
 
 export async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, options);
+  const headers = new Headers(options.headers || {});
+  try {
+    const token = sessionStorage.getItem("traffix-operator-token");
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  } catch { /* sessionStorage may be unavailable in private browser modes */ }
+  if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const res = await fetch(`/api${path}`, { ...options, headers });
   if (!res.ok) {
     const text = await res.text();
     let detail = text;

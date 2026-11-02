@@ -1,7 +1,18 @@
+---
+title: TraffiX Live Simulation
+emoji: 🚦
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # traffix
 
 A reliable AI decision platform for urban traffic simulation, built on Eclipse SUMO by six
-ESPRIT 4DS students for the course *Intelligent Multi-Agent Traffic Management*.
+ESPRIT 5DS students for the course advanced data science project
+*Intelligent Multi-Agent Traffic Management*.
 
 Agents cooperate to run the traffic lights of a simulated city. **Only one controller per light
 may change it**, every decision is logged with a reason, and a language layer (**Synapse**)

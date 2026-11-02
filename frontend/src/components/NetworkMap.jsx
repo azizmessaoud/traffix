@@ -10,6 +10,7 @@ const VEHICLES = {
   ambulance: { L: 5.8, W: 2.1, min: 11, fill: "#ffffff", label: "Ambulance" },
   police: { L: 4.8, W: 1.9, min: 10, fill: "#1f3fbf", label: "Police" },
   fire: { L: 9, W: 2.5, min: 14, fill: "#d8261c", label: "Fire truck" },
+  incident: { L: 4.5, W: 1.85, min: 10, fill: "#ff3b30", label: "Stalled vehicle" },
 };
 // Paint mix of cars in Tunis traffic; "taxi" is the yellow city taxi.
 const CAR_PAINTS = [["#f4f4f2", 28], ["#b8bec4", 18], ["#6b7178", 11], ["#1d2126", 12], ["taxi", 13],

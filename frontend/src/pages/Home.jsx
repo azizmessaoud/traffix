@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { PERSONAS } from "../api.js";
 import NetworkMap from "../components/NetworkMap.jsx";
 import { Stat } from "../components/Feed.jsx";
+import EventInjector from "../components/EventInjector.jsx";
 
 const TEXT = {
   pedestrian: "Crossing status, waits and walk-signal alerts",
@@ -34,7 +35,10 @@ export default function Home({ live }) {
         </div>
       )}
       <NetworkMap live={live} height={380}
-                  highlight={{ incidents: live.incidents?.map((i) => i.subject), floods: live.floods?.map((f) => f.subject) }} />
+                  highlight={{ incidents: [...(live.incidents?.map((i) => i.subject) || []),
+                    ...(live.world_events?.filter((e) => ["applied", "detected"].includes(e.status)).map((e) => e.edge_id) || [])],
+                    floods: live.floods?.map((f) => f.subject) }} />
+      <EventInjector live={live} />
       <div className="grid g4 persona-grid">
         {PERSONAS.map((p) => (
           <Link key={p.id} to={p.path} className="card">

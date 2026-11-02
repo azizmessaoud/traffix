@@ -50,6 +50,42 @@ class World:
             if "flood_edge" in rain and self._once("flood", now, rain["flood_at"]):
                 self._flood(rain["flood_edge"])
 
+    def inject_incident(self, event, now):
+        """Create a uniquely named stopped vehicle. Called only by the SUMO owner thread."""
+        event_id = event["event_id"].replace("-", "")
+        vehicle_id = f"incident_{event_id}"
+        route_id = f"incident_route_{event_id}"
+        edge, lane = event["edge_id"], event["lane_index"]
+        lane_id = f"{edge}_{lane}"
+        length = traci.lane.getLength(lane_id)
+        if length < 20:
+            raise ValueError("Selected lane is too short for a safe incident placement")
+        stop_pos = min(length - 2, max(12, length * 0.6))
+        depart_pos = max(0, stop_pos - 8)
+        route_added = False
+        vehicle_added = False
+        try:
+            traci.route.add(route_id, [edge])
+            route_added = True
+            traci.vehicle.add(vehicle_id, route_id, typeID="car", depart="now",
+                              departLane=str(lane), departPos=str(depart_pos), departSpeed="0")
+            vehicle_added = True
+            traci.vehicle.setStop(vehicle_id, edge, pos=stop_pos, laneIndex=lane,
+                                  duration=event["duration_seconds"])
+        except Exception:
+            if vehicle_added:
+                try:
+                    traci.vehicle.remove(vehicle_id)
+                except Exception:
+                    pass
+            if route_added:
+                try:
+                    traci.route.remove(route_id)
+                except Exception:
+                    pass
+            raise
+        return {"vehicle_id": vehicle_id, "applied_at": now}
+
     def _set_rain(self, intensity):
         """Rain: lower desired speed, longer reaction gaps, gentler braking."""
         for vt in VEHICLE_TYPES:

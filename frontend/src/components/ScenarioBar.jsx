@@ -7,12 +7,16 @@ export default function ScenarioBar({ live }) {
   const [choice, setChoice] = useState("morning_peak");
   const [speed, setSpeed] = useState(4);
   const [controller, setController] = useState("traffix");
+  const [seed, setSeed] = useState(1);
+  const [operatorToken, setOperatorToken] = useState(() => {
+    try { return sessionStorage.getItem("traffix-operator-token") || ""; } catch { return ""; }
+  });
   const [failed, setFailed] = useState("");
   const { lang, setLang } = useLang();
   useEffect(() => { if (live.scenario) setChoice(live.scenario); }, [live.scenario]);
   const start = () => {
     setFailed("");
-    api(`/start?scenario=${choice}&speed=${speed}&controller=${controller}`, { method: "POST" })
+    api(`/start?scenario=${choice}&speed=${speed}&seed=${seed}&controller=${controller}`, { method: "POST" })
       .catch((e) => setFailed(`Start failed: ${e.message}`));
   };
   const stop = () => api("/stop", { method: "POST" }).catch((e) => setFailed(`Stop failed: ${e.message}`));
@@ -32,11 +36,20 @@ export default function ScenarioBar({ live }) {
         <option value="traffix_rules">Rules only (no models)</option>
         <option value="junction_only">No supermaster</option>
       </select>
+      <label className="muted" style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+        seed <input type="number" min="1" max="2147483647" value={seed}
+                    onChange={(e) => setSeed(Math.max(1, Number(e.target.value) || 1))} style={{ width: 90 }} />
+      </label>
+      <input type="password" aria-label="Operator token" placeholder="Operator token (hosted)"
+             value={operatorToken} onChange={(e) => {
+               setOperatorToken(e.target.value);
+               try { sessionStorage.setItem("traffix-operator-token", e.target.value); } catch { /* ignore */ }
+             }} style={{ width: 190 }} />
       <button className="primary" onClick={start}>Start</button>
       <button onClick={stop}>Stop</button>
       <span style={{ flex: 1 }} />
       {status === "running" && <>
-        <span className="muted">{live.scenario?.replaceAll("_", " ")} · {
+        <span className="muted">{live.scenario?.replaceAll("_", " ")} · seed {live.seed} · {
           { traffix: "max-pressure", traffix_predictive: "predictive", traffix_rl: "RL",
             traffix_rules: "rules only", junction_only: "no supermaster" }[live.controller] || live.controller}</span>
         <span className="clock">{live.clock}</span>

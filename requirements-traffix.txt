@@ -1,7 +1,7 @@
-eclipse-sumo
-traci
-sumolib
-libsumo
+eclipse-sumo==1.27.1
+traci==1.27.1
+sumolib==1.27.1
+libsumo==1.27.1
 pyyaml
 hijridate
 scikit-learn==1.9.1

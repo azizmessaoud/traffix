@@ -2,11 +2,14 @@
 Live mode: runs ONE simulation in a background thread, paced for watching,
 and keeps a snapshot of everything the persona pages need.
 """
+import copy
 import json
 import os
+import queue
 import threading
-import traceback
 import time
+import traceback
+import uuid
 from datetime import datetime
 
 import sumo
@@ -99,6 +102,9 @@ class LiveRun:
         self.scenario, self.seed, self.speed, self.controller = scenario, seed, speed, controller
         self.gui = gui          # also show THIS run in SUMO's own window
         self.lock = threading.Lock()
+        self.event_commands = queue.Queue(maxsize=20)
+        self.world_events = []
+        self._event_requests = {}
         self.snapshot = {"status": "starting"}
         self.log = DecisionLog()
         self.running = False
@@ -113,6 +119,18 @@ class LiveRun:
     def _static(self, net_file):
         """Trip planner data that never changes: road graph, free-flow times, places, bus lines."""
         net = sumolib.net.readNet(net_file)
+        self.incident_options = []
+        self._incident_lanes = {}
+        for edge in net.getEdges():
+            if edge.getFunction() or not edge.allows("passenger"):
+                continue
+            lane_indexes = [lane.getIndex() for lane in edge.getLanes() if lane.allows("passenger")]
+            if lane_indexes:
+                self._incident_lanes[edge.getID()] = lane_indexes
+                self.incident_options.append({
+                    "edge_id": edge.getID(), "name": edge.getName() or edge.getID(),
+                    "lanes": lane_indexes,
+                })
         self.graph = {e.getID(): [o.getID() for o in e.getOutgoing()]
                       for e in net.getEdges() if not e.getFunction()}
         self.free_tt = {e.getID(): e.getLength() / max(e.getSpeed(), 0.1)
@@ -237,6 +255,104 @@ class LiveRun:
             return not thread.is_alive()
         return True
 
+    def enqueue_incident(self, edge_id, lane_index, duration_seconds, request_id):
+        """Validate on the request thread; enqueue only. TraCI is touched by _simulate only."""
+        if not self.running:
+            raise ValueError("No running simulation")
+        if edge_id not in self._incident_lanes:
+            raise ValueError("Unknown or unsupported road edge")
+        if lane_index not in self._incident_lanes[edge_id]:
+            raise ValueError("Lane is not a passenger-vehicle lane on this edge")
+        if not 10 <= duration_seconds <= 1800:
+            raise ValueError("Duration must be between 10 and 1800 simulation seconds")
+        request_id = str(request_id)
+        signature = (edge_id, lane_index, duration_seconds)
+        with self.lock:
+            previous = self._event_requests.get(request_id)
+            if previous:
+                if previous[0] != signature:
+                    raise ValueError("Request ID was already used for different event parameters")
+                existing = next((e for e in self.world_events if e["event_id"] == previous[1]), None)
+                if existing:
+                    return copy.deepcopy(existing)
+        event = {
+            "event_id": str(uuid.uuid4()), "type": "incident", "edge_id": edge_id,
+            "lane_index": lane_index, "duration_seconds": duration_seconds,
+            "status": "queued", "queued_at": time.time(),
+        }
+        with self.lock:
+            previous = self._event_requests.get(request_id)
+            if previous:
+                if previous[0] != signature:
+                    raise ValueError("Request ID was already used for different event parameters")
+                existing = next((e for e in self.world_events if e["event_id"] == previous[1]), None)
+                if existing:
+                    return copy.deepcopy(existing)
+            if len([e for e in self.world_events if e["status"] in ("queued", "applied", "detected")]) >= 20:
+                raise ValueError("The active event limit has been reached")
+            self.world_events.append(event)
+            self.world_events = self.world_events[-100:]
+            self._event_requests[request_id] = (signature, event["event_id"])
+        try:
+            self.event_commands.put_nowait(event["event_id"])
+        except queue.Full as exc:
+            with self.lock:
+                event["status"] = "rejected"
+                event["error"] = "The event queue is full"
+            raise ValueError("The event queue is full") from exc
+        return copy.deepcopy(event)
+
+    def _apply_queued_events(self, world, now):
+        while True:
+            try:
+                event_id = self.event_commands.get_nowait()
+            except queue.Empty:
+                break
+            with self.lock:
+                event = next((e for e in self.world_events if e["event_id"] == event_id), None)
+            if not event:
+                continue
+            try:
+                details = world.inject_incident(event, now)
+                with self.lock:
+                    event.update(details, status="applied")
+            except Exception as exc:  # SUMO rejects bad placement or insertion; preserve the reason.
+                with self.lock:
+                    event.update(status="rejected", error=f"{type(exc).__name__}: {exc}")
+            finally:
+                self.event_commands.task_done()
+
+    def _update_world_events(self, now):
+        incident_messages = self.system.bus.published("INCIDENT")
+        by_lane = {(p.details.get("lane"), p.subject) for p in incident_messages}
+        vehicles = set(traci.vehicle.getIDList())
+        with self.lock:
+            for event in self.world_events:
+                if event["status"] not in ("applied", "detected"):
+                    continue
+                target = (f'{event["edge_id"]}_{event["lane_index"]}', event["edge_id"])
+                if event.get("detected_at") is None and target in by_lane:
+                    event.update(status="detected", detected_at=now)
+                expired = now >= event["applied_at"] + event["duration_seconds"]
+                seen = event.get("vehicle_id") in vehicles
+                if seen:
+                    event["vehicle_seen"] = True
+                gone = event.get("vehicle_seen", False) and not seen
+                if expired or gone:
+                    event.update(status="completed", completed_at=now)
+
+    def _cancel_pending_events(self):
+        while True:
+            try:
+                event_id = self.event_commands.get_nowait()
+            except queue.Empty:
+                break
+            with self.lock:
+                event = next((e for e in self.world_events if e["event_id"] == event_id), None)
+                if event and event["status"] == "queued":
+                    event.update(status="cancelled", error="Simulation stopped before event application")
+            self.event_commands.task_done()
+
     def _run(self):
         """Any failure ends as status "error" with a reason the page can show, never a silent hang."""
         try:
@@ -274,13 +390,17 @@ class LiveRun:
         self.system.start(0)
         world = World(self.meta["events"], models, self.system.sensors)
         end = self.meta["duration"]
+        max_wall_seconds = float(os.environ.get("TRAFFIX_MAX_RUN_WALL_SECONDS", "3600"))
+        deadline = time.monotonic() + max(60, max_wall_seconds)
         try:
-            while self.running and traci.simulation.getTime() < end:
+            while self.running and traci.simulation.getTime() < end and time.monotonic() < deadline:
                 t0 = time.time()
                 traci.simulationStep()
                 now = traci.simulation.getTime()
                 world.step(now)
+                self._apply_queued_events(world, now)
                 self.system.step(now)
+                self._update_world_events(now)
                 if int(now) % 5 == 0 or not hasattr(self, "_tt"):
                     sm = self.system.supermaster
                     self._tt = sm.rerouting.travel_times() if sm else self.system.sensors.edge_travel_times()
@@ -291,9 +411,14 @@ class LiveRun:
                     self.snapshot = snap
                 time.sleep(max(0.0, 1.0 / self.speed - (time.time() - t0)))
         finally:
+            self._cancel_pending_events()
             _close_traci()
             with self.lock:
-                self.snapshot["status"] = "finished"
+                if self.snapshot.get("status") != "error":
+                    self.snapshot["status"] = "finished"
+                    if time.monotonic() >= deadline:
+                        self.snapshot["end_reason"] = "Maximum wall-clock run time reached"
+                self.snapshot["world_events"] = copy.deepcopy(self.world_events)
 
     def _bus_next_stops(self):
         """Each bus's remaining stops with the driving distance to them: {bus: [[stop id, metres], ...]}."""
@@ -313,13 +438,16 @@ class LiveRun:
 
     def _snapshot(self, now, models):
         s, bus = self.system.sensors, self.system.bus
+        with self.lock:
+            world_events = copy.deepcopy(self.world_events)
         kinds = {"car": "car", "moto": "moto", "bus": "bus", "ambulance": "ambulance",
                  "police": "police", "fire_truck": "fire"}
         vehicles = []
         for v in traci.vehicle.getIDList():
             x, y = traci.vehicle.getPosition(v)
             vt = traci.vehicle.getTypeID(v)
-            vehicles.append({"id": v, "x": round(x, 1), "y": round(y, 1), "kind": kinds.get(vt, "car"),
+            vehicles.append({"id": v, "x": round(x, 1), "y": round(y, 1),
+                             "kind": "incident" if v.startswith("incident_") else kinds.get(vt, "car"),
                              "angle": round(traci.vehicle.getAngle(v)),
                              "line": traci.vehicle.getLine(v) if vt == "bus" else "",
                              "speed": round(traci.vehicle.getSpeed(v), 1)})
@@ -348,7 +476,9 @@ class LiveRun:
                                "on_crossing": len(s.on_crossing.get(c, []))} for c in m.crossings]})
         pubs = lambda k: [{"subject": p.subject, "t": p.t, **p.details} for p in bus.published(k)]
         return {
-            "status": "running", "scenario": self.scenario, "controller": self.controller, "t": now,
+            "status": "running", "scenario": self.scenario, "controller": self.controller,
+            "seed": self.seed, "t": now,
+            "world_events": world_events,
             "clock": self.system.ctx.clock(now).strftime("%Y-%m-%d %H:%M:%S"),
             "duration": self.meta["duration"], "junctions": junctions, "vehicles": vehicles, "people": people,
             "signals": signals,

@@ -55,4 +55,12 @@ td { padding: 7px 8px; border-bottom: 1px solid #222a36; vertical-align: top; }
 .persona-grid a { transition: border-color .15s; }
 .persona-grid a:hover { border-color: var(--teal); }
 .answer { white-space: pre-wrap; line-height: 1.55; background: #161b24; padding: 12px; border-radius: 8px; }
+.event-panel { gap: 14px; }
+.event-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.event-controls label { display: flex; flex-direction: column; gap: 5px; color: var(--soft); font-size: 13px; }
+.event-controls select { min-width: 115px; max-width: min(460px, 70vw); }
+.event-controls input { width: 150px; }
+.event-timeline { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.event-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 10px; background: #161b24; border-radius: 8px; }
+.event-note { margin: 0; font-size: 13px; }
 @media (max-width: 1000px) { .app { grid-template-columns: 1fr; } .split, .g3, .g4 { grid-template-columns: 1fr; } }
