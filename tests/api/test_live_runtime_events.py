@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import queue
 import threading
 
 import pytest
 from types import SimpleNamespace
 from traffix.api.live import LiveRun
+from traffix.core import config
 from fastapi import HTTPException
 from traffix.api.server import require_operator
 
@@ -150,3 +152,59 @@ def test_mutating_live_api_auth_check_requires_the_configured_bearer_token(monke
     with pytest.raises(HTTPException) as misconfigured:
         require_operator(None)
     assert misconfigured.value.status_code == 503
+
+
+def test_closed_intake_refuses_new_events_and_drain_cancels_queued_ones() -> None:
+    run = _run()
+    queued = run.enqueue_incident("edge-a", 0, 60, "request-1")
+
+    run._close_intake()                 # the simulation is stopping or has finished
+    run._cancel_pending_events()
+
+    assert run.world_events[0]["event_id"] == queued["event_id"]
+    assert run.world_events[0]["status"] == "cancelled"
+    with pytest.raises(ValueError, match="No running simulation"):
+        run.enqueue_incident("edge-a", 0, 60, "request-2")
+    assert len(run.world_events) == 1      # nothing stranded in the queue after the drain
+    assert run.event_commands.empty()
+
+
+@pytest.mark.skipif(not os.path.exists(config.network_files()[0]), reason="Tunis network not generated")
+def test_incident_options_only_offer_lanes_the_detector_reads() -> None:
+    pytest.importorskip("sumolib")          # reads the network with SUMO's own parser
+    from traffix.simulation.network_model import load_models
+
+    net = config.network_files()[0]
+    run = object.__new__(LiveRun)
+    run.geometry = {}
+    run._static(net)
+    observed = {lane for m in load_models(net).values() for lane in m.incoming_lanes + m.outgoing_lanes}
+    offered = {f"{o['edge_id']}_{lane}" for o in run.incident_options for lane in o["lanes"]}
+
+    assert offered and offered <= observed
+    assert "-100080970_1" not in offered    # a lane with no junction sensor cannot be detected
+
+
+class FatalTraCIError(Exception):
+    """Same class name as traci's error: the run handler decides by name."""
+
+
+@pytest.mark.parametrize(("started", "expected"), [
+    (False, "SUMO did not start"),
+    (True, "SUMO stopped"),
+])
+def test_run_error_says_whether_sumo_never_started_or_stopped_mid_run(started, expected) -> None:
+    run = _run()
+    run.snapshot = {"status": "starting"}
+    if started:
+        run.sumo_started = True
+
+    def failing_simulate():
+        raise FatalTraCIError("Could not connect in 11 tries")
+
+    run._simulate = failing_simulate
+    run._run()
+
+    assert run.snapshot["status"] == "error"
+    assert run.snapshot["error"].startswith(expected)
+    assert run.running is False

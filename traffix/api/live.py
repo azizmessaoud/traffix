@@ -12,8 +12,11 @@ import traceback
 import uuid
 from datetime import datetime
 
-import sumo
-import sumolib
+try:                                     # SUMO is optional at import time; a live run needs it
+    import sumo
+    import sumolib
+except ImportError:
+    sumo = sumolib = None
 
 from ..core import config
 from ..core.decision_log import DecisionLog
@@ -27,7 +30,7 @@ from ..simulation.backend import traci
 from ..simulation.network_model import load_models
 from ..simulation.world import World
 
-SUMO_HOME = os.environ.get("SUMO_HOME", sumo.SUMO_HOME)
+SUMO_HOME = os.environ.get("SUMO_HOME", sumo.SUMO_HOME if sumo else "")
 
 
 def _close_traci():
@@ -119,12 +122,17 @@ class LiveRun:
     def _static(self, net_file):
         """Trip planner data that never changes: road graph, free-flow times, places, bus lines."""
         net = sumolib.net.readNet(net_file)
+        # Only lanes the junction sensors read can be detected; offering any other lane
+        # would let an operator inject an event that the system can never report.
+        observed = {lane for m in load_models(net_file).values()
+                    for lane in m.incoming_lanes + m.outgoing_lanes}
         self.incident_options = []
         self._incident_lanes = {}
         for edge in net.getEdges():
             if edge.getFunction() or not edge.allows("passenger"):
                 continue
-            lane_indexes = [lane.getIndex() for lane in edge.getLanes() if lane.allows("passenger")]
+            lane_indexes = [lane.getIndex() for lane in edge.getLanes()
+                            if lane.allows("passenger") and lane.getID() in observed]
             if lane_indexes:
                 self._incident_lanes[edge.getID()] = lane_indexes
                 self.incident_options.append({
@@ -246,7 +254,7 @@ class LiveRun:
     def stop(self):
         """Ask the run to end and wait for it, so the next run gets a free TraCI connection.
         False if the run is still going after 20 s (TraCI is global: no new run may start then)."""
-        self.running = False
+        self._close_intake()
         if hasattr(self, "alert_writer"):
             self.alert_writer.stop()
         thread = getattr(self, "thread", None)
@@ -255,10 +263,13 @@ class LiveRun:
             return not thread.is_alive()
         return True
 
+    def _close_intake(self):
+        """No new events after this. Under the lock, so an enqueue cannot land after the drain."""
+        with self.lock:
+            self.running = False
+
     def enqueue_incident(self, edge_id, lane_index, duration_seconds, request_id):
         """Validate on the request thread; enqueue only. TraCI is touched by _simulate only."""
-        if not self.running:
-            raise ValueError("No running simulation")
         if edge_id not in self._incident_lanes:
             raise ValueError("Unknown or unsupported road edge")
         if lane_index not in self._incident_lanes[edge_id]:
@@ -267,20 +278,16 @@ class LiveRun:
             raise ValueError("Duration must be between 10 and 1800 simulation seconds")
         request_id = str(request_id)
         signature = (edge_id, lane_index, duration_seconds)
-        with self.lock:
-            previous = self._event_requests.get(request_id)
-            if previous:
-                if previous[0] != signature:
-                    raise ValueError("Request ID was already used for different event parameters")
-                existing = next((e for e in self.world_events if e["event_id"] == previous[1]), None)
-                if existing:
-                    return copy.deepcopy(existing)
         event = {
             "event_id": str(uuid.uuid4()), "type": "incident", "edge_id": edge_id,
             "lane_index": lane_index, "duration_seconds": duration_seconds,
             "status": "queued", "queued_at": time.time(),
         }
+        # Check intake, idempotency, limits and the enqueue under ONE lock: _close_intake and the
+        # end-of-run drain take the same lock, so an event is either refused or drained, never stranded.
         with self.lock:
+            if not self.running:
+                raise ValueError("No running simulation")
             previous = self._event_requests.get(request_id)
             if previous:
                 if previous[0] != signature:
@@ -293,14 +300,13 @@ class LiveRun:
             self.world_events.append(event)
             self.world_events = self.world_events[-100:]
             self._event_requests[request_id] = (signature, event["event_id"])
-        try:
-            self.event_commands.put_nowait(event["event_id"])
-        except queue.Full as exc:
-            with self.lock:
+            try:
+                self.event_commands.put_nowait(event["event_id"])
+            except queue.Full as exc:
                 event["status"] = "rejected"
                 event["error"] = "The event queue is full"
-            raise ValueError("The event queue is full") from exc
-        return copy.deepcopy(event)
+                raise ValueError("The event queue is full") from exc
+            return copy.deepcopy(event)
 
     def _apply_queued_events(self, world, now):
         while True:
@@ -360,8 +366,14 @@ class LiveRun:
         except Exception as e:                          # noqa: BLE001 - reported to the operator
             traceback.print_exc()
             closed = type(e).__name__ == "FatalTraCIError"
-            reason = ("SUMO stopped (was the SUMO window closed?)."
-                      if closed else f"{type(e).__name__}: {e}")
+            if closed and not getattr(self, "sumo_started", False):
+                # TraCI never connected: SUMO itself failed to start (for example a missing shared library).
+                reason = ("SUMO did not start: no connection to the simulator. The server log shows "
+                          "SUMO's own error, such as a missing shared library.")
+            elif closed:
+                reason = "SUMO stopped (was the SUMO window closed?)."
+            else:
+                reason = f"{type(e).__name__}: {e}"
             with self.lock:
                 self.snapshot = {**self.snapshot, "status": "error", "error": reason}
             self.running = False
@@ -383,6 +395,7 @@ class LiveRun:
                     + (["-a", ",".join(extra)] if extra else []) + [
                      "--time-to-teleport", "300", "--ignore-route-errors", "true",
                      "--no-step-log", "true", "--no-warnings", "true", "--seed", str(self.seed)])
+        self.sumo_started = True                        # from here on, a TraCI error is a mid-run failure
         models = load_models(net)
         start = datetime.strptime(self.meta["start"], "%Y-%m-%d %H:%M")
         self.narrator = Narrator({t: m.name for t, m in models.items()}, self.edge_name, start)
@@ -411,6 +424,7 @@ class LiveRun:
                     self.snapshot = snap
                 time.sleep(max(0.0, 1.0 / self.speed - (time.time() - t0)))
         finally:
+            self._close_intake()                        # also on normal end of run, not only on stop()
             self._cancel_pending_events()
             _close_traci()
             with self.lock:

@@ -8,10 +8,21 @@ for the GUI. Both expose the same functions.
 """
 import sys
 
-if "--gui" in sys.argv:
-    import traci
-else:
+
+def _load_traci():
+    """SUMO is needed only to run a simulation, not to import the API or the agents. Without it
+    this is None, and a run fails with a clear error instead of the whole app failing to import."""
+    if "--gui" not in sys.argv:
+        try:
+            import libsumo
+            return libsumo
+        except ImportError:
+            pass
     try:
-        import libsumo as traci
-    except ImportError:
         import traci
+        return traci
+    except ImportError:
+        return None
+
+
+traci = _load_traci()

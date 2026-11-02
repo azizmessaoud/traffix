@@ -1,7 +1,8 @@
 name: PR architecture
 
-# SUMO-free merge gate. Native smoke stays on Windows (ADR-0003).
-# The Python project lives on prototype/coflow5-scaffold. main has no pyproject.toml.
+# SUMO-free merge gate (ADR-0003): architecture rules, API tests, the frontend build, and a smoke
+# test of the live Docker image, which is where SUMO actually runs. Native Windows smoke stays on
+# eval.yml.
 on:
   pull_request:
   push:
@@ -34,5 +35,31 @@ jobs:
         run: python -m compileall -q src tests
       - name: traffix hierarchy rules (one light writer, Synapse cannot reach SUMO)
         run: python scripts/check_architecture.py
-      - name: Architecture and read-only API tests
+      - name: Architecture and API tests
         run: python -m pytest tests/architecture tests/api -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install from the lockfile
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the live image
+        run: docker build -t traffix-live .
+      - name: Start it and require a real SUMO run
+        run: bash scripts/ci_container_smoke.sh traffix-live

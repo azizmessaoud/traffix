@@ -12,3 +12,7 @@ tools/** linguist-documentation
 scenarios/**/*.osm.xml text eol=lf
 scenarios/tunis-centre-6j/selection.json text eol=lf
 scenarios/tunis-centre-6j/lane_overrides.json text eol=lf
+
+# Shell scripts and the Dockerfile run inside Linux containers: CRLF breaks sh ("set: Illegal option -").
+*.sh text eol=lf
+Dockerfile text eol=lf

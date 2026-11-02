@@ -2,6 +2,7 @@ eclipse-sumo==1.27.1
 traci==1.27.1
 sumolib==1.27.1
 libsumo==1.27.1
+sumo-data==1.27.1
 pyyaml
 hijridate
 scikit-learn==1.9.1
@@ -10,5 +11,6 @@ numpy
 pandas
 matplotlib
 scipy
-fastapi
-uvicorn
+fastapi==0.116.1
+httpx==0.28.1
+uvicorn[standard]==0.35.0

@@ -12,11 +12,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates libglib2.0-0 libgomp1 libgl1 libsm6 libxext6 libxrender1 \
+      ca-certificates libatomic1 libglib2.0-0 libgomp1 libgl1 libsm6 libxext6 libxrender1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-traffix.txt ./
-RUN pip install --no-cache-dir -r requirements-traffix.txt
+RUN --mount=type=cache,target=/root/.cache/pip PIP_NO_CACHE_DIR=0 pip install -r requirements-traffix.txt
 
 COPY . ./
 COPY --from=frontend-build /frontend/dist ./frontend/dist

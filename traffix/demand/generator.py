@@ -12,7 +12,10 @@ import os
 import random
 from datetime import datetime, timedelta
 
-import sumolib
+try:                                     # needed to build a network, not to import this module
+    import sumolib
+except ImportError:
+    sumolib = None
 
 from ..core import config
 from .calendar_model import CalendarModel
@@ -116,24 +119,17 @@ class DemandGenerator:
         self.d = config.demand()
         self._paths = {}                                  # (edge, vclass) -> edges reachable from it
         self._next = {}                                   # vclass -> {edge: edges the router may step to}
+        self._walk_components = None                      # pedestrian: edge -> its shared connected component
 
     def _reachable(self, a, vclass):
         """Every edge a `vclass` trip can reach from `a`: the edges sumolib's router would search
         (allowed successors; walkers may also go against the direction). One search per start
         edge instead of one shortest-path search per trip."""
+        if vclass == "pedestrian":
+            return self._walk_component(a)
         key = (a, vclass)
         if key not in self._paths:
-            if vclass not in self._next:
-                walk = vclass == "pedestrian"
-                nxt = {}
-                for e in self.net.getEdges(withInternal=True):
-                    nxt[e] = list(e.getAllowedOutgoing(vclass))
-                    if walk:
-                        nxt[e] += list(e.getIncoming())
-                        if not self.net.hasWalkingArea and e.getFunction() == "":
-                            nxt[e] += [i for i in e.getToNode().getIncoming() if i.getFunction() == ""]
-                self._next[vclass] = nxt
-            nxt = self._next[vclass]
+            nxt = self._successors(vclass)
             seen, todo = {a}, [a]
             while todo:
                 for n in nxt.get(todo.pop(), ()):
@@ -142,6 +138,39 @@ class DemandGenerator:
                         todo.append(n)
             self._paths[key] = seen
         return self._paths[key]
+
+    def _walk_component(self, a):
+        """Walkers may go both ways along every edge, so reachability is symmetric: the set is the
+        edge's connected component. One shared set per component keeps memory linear in the network;
+        a search per start edge kept a full-network set for each edge (MemoryError on Tunis)."""
+        if self._walk_components is None:
+            nxt = self._successors("pedestrian")
+            self._walk_components = {}
+            for start in nxt:
+                if start in self._walk_components:
+                    continue
+                comp, todo = {start}, [start]
+                while todo:
+                    for n in nxt.get(todo.pop(), ()):
+                        if n not in comp:
+                            comp.add(n)
+                            todo.append(n)
+                for e in comp:
+                    self._walk_components[e] = comp
+        return self._walk_components.get(a, {a})
+
+    def _successors(self, vclass):
+        if vclass not in self._next:
+            walk = vclass == "pedestrian"
+            nxt = {}
+            for e in self.net.getEdges(withInternal=True):
+                nxt[e] = list(e.getAllowedOutgoing(vclass))
+                if walk:
+                    nxt[e] += list(e.getIncoming())
+                    if not self.net.hasWalkingArea and e.getFunction() == "":
+                        nxt[e] += [i for i in e.getToNode().getIncoming() if i.getFunction() == ""]
+            self._next[vclass] = nxt
+        return self._next[vclass]
 
     def _ok(self, a, b, vclass="passenger"):
         if a == b or b.getToNode() == a.getFromNode():

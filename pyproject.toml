@@ -20,6 +20,15 @@ api = [
   "httpx==0.28.1",
   "uvicorn[standard]==0.35.0",
 ]
+# The live simulator imports SUMO at module level (traffix/api/live.py). Pinned to the SUMO
+# binary version; sumo-data must match it or SUMO's data files and binary drift apart.
+sim = [
+  "eclipse-sumo==1.27.1",
+  "sumo-data==1.27.1",
+  "sumolib==1.27.1",
+  "traci==1.27.1",
+  "libsumo==1.27.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

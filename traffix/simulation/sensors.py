@@ -9,7 +9,10 @@ external weather service; world.py fills it during rain scenarios.
 from dataclasses import dataclass
 from html import unescape
 
-import sumolib
+try:                                     # SUMO is needed to read a network, not to import this module
+    import sumolib
+except ImportError:
+    sumolib = None
 
 from .backend import traci
 
