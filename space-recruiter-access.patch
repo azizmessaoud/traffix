@@ -1,0 +1,101 @@
+diff --git a/.dockerignore b/.dockerignore
+index 67e36c7..70e0b88 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -16,4 +16,7 @@ frontend/dist
+ !.env.example
+ data/generated
+ data/training
+-results
++results/*
++!results/summary_by_persona.csv
++!results/significance.csv
++!results/persona_charts.png
+diff --git a/.gitignore b/.gitignore
+index 8624afe..f60d2ab 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -39,4 +39,7 @@ README.pdf
+ # traffix generated demand and experiment output
+ data/generated/
+ data/training/
+-results/
++results/*
++!results/summary_by_persona.csv
++!results/significance.csv
++!results/persona_charts.png
+diff --git a/frontend/src/api.js b/frontend/src/api.js
+index ba73bdb..a2c1100 100644
+--- a/frontend/src/api.js
++++ b/frontend/src/api.js
+@@ -1,6 +1,17 @@
+ // All data comes from the Python backend (supermaster API). Nothing talks to SUMO directly.
+ import { useEffect, useState } from "react";
+ 
++// Shared demo link: https://<space>/?code=XXXX stores the code for this tab and removes it from the address bar.
++try {
++  const url = new URL(window.location.href);
++  const code = url.searchParams.get("code");
++  if (code) {
++    sessionStorage.setItem("traffix-operator-token", code);
++    url.searchParams.delete("code");
++    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
++  }
++} catch { /* no window / sessionStorage in some modes */ }
++
+ export async function api(path, options = {}) {
+   const headers = new Headers(options.headers || {});
+   try {
+diff --git a/tests/api/test_live_runtime_events.py b/tests/api/test_live_runtime_events.py
+index 39477be..bac2236 100644
+--- a/tests/api/test_live_runtime_events.py
++++ b/tests/api/test_live_runtime_events.py
+@@ -154,6 +154,20 @@ def test_mutating_live_api_auth_check_requires_the_configured_bearer_token(monke
+     assert misconfigured.value.status_code == 503
+ 
+ 
++def test_optional_demo_token_is_accepted_alongside_the_operator_token(monkeypatch) -> None:
++    monkeypatch.setenv("TRAFFIX_OPERATOR_TOKEN", "test-secret")
++    monkeypatch.setenv("TRAFFIX_REQUIRE_OPERATOR_TOKEN", "1")
++    monkeypatch.delenv("TRAFFIX_DEMO_TOKEN", raising=False)
++    with pytest.raises(HTTPException):
++        require_operator("Bearer recruiter-code")
++    monkeypatch.setenv("TRAFFIX_DEMO_TOKEN", "recruiter-code")
++    require_operator("Bearer recruiter-code")
++    require_operator("Bearer test-secret")
++    with pytest.raises(HTTPException) as wrong:
++        require_operator("Bearer something-else")
++    assert wrong.value.status_code == 401
++
++
+ def test_closed_intake_refuses_new_events_and_drain_cancels_queued_ones() -> None:
+     run = _run()
+     queued = run.enqueue_incident("edge-a", 0, 60, "request-1")
+diff --git a/traffix/api/server.py b/traffix/api/server.py
+index 4dfe39a..f6e2235 100644
+--- a/traffix/api/server.py
++++ b/traffix/api/server.py
+@@ -76,15 +76,21 @@ class IncidentRequest(BaseModel):
+ 
+ 
+ def require_operator(authorization: str | None):
+-    """Local runs may omit a token; hosted runs must set TRAFFIX_OPERATOR_TOKEN."""
++    """Local runs may omit a token; hosted runs must set TRAFFIX_OPERATOR_TOKEN.
++
++    TRAFFIX_DEMO_TOKEN is an optional second, revocable token for shared demo links (e.g. recruiters).
++    """
+     expected = os.environ.get("TRAFFIX_OPERATOR_TOKEN", "")
++    demo = os.environ.get("TRAFFIX_DEMO_TOKEN", "")
+     required = os.environ.get("TRAFFIX_REQUIRE_OPERATOR_TOKEN", "").lower() in {"1", "true", "yes"}
+     if required and not expected:
+         raise HTTPException(503, "Operator access is not configured")
+     if not expected and not required:
+         return
+     supplied = authorization[7:] if authorization and authorization.startswith("Bearer ") else ""
+-    if not supplied or not hmac.compare_digest(supplied, expected):
++    ok = bool(supplied) and (hmac.compare_digest(supplied, expected)
++                             or (bool(demo) and hmac.compare_digest(supplied, demo)))
++    if not ok:
+         raise HTTPException(401, "A valid operator token is required")
+ 
+ 
