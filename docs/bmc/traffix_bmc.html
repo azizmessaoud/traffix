@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TraffiX Business Model Canvas</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--red:#E30613;--ink:#16171b;--muted:#5d6068;--line:#e3e1dc;--bg:#f6f5f2;--card:#fff;--tint:#fdeced}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);font-family:Inter,system-ui,sans-serif;color:var(--ink)}
+  .page{width:1920px;height:1080px;padding:44px 56px 36px;display:flex;flex-direction:column;gap:22px;position:relative}
+  .page::before{content:"";position:absolute;left:0;top:0;bottom:0;width:10px;background:var(--red)}
+  header{display:flex;align-items:flex-end;justify-content:space-between}
+  h1{font-family:Montserrat,sans-serif;font-weight:800;font-size:48px;letter-spacing:-.5px;line-height:1}
+  h1 span{color:var(--red)}
+  .sub{margin-top:12px;font-size:16px;letter-spacing:6px;text-transform:uppercase;color:var(--muted)}
+  .brand{font-family:Montserrat,sans-serif;font-weight:800;letter-spacing:8px;font-size:20px}
+  .grid{flex:1;display:grid;gap:14px;
+    grid-template-columns:repeat(10,1fr);
+    grid-template-rows:1fr 1fr .56fr;
+    grid-template-areas:
+      "kp kp ka ka vp vp cr cr cs cs"
+      "kp kp kr kr vp vp ch ch cs cs"
+      "co co co co co rv rv rv rv rv"}
+  .b{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .b h2{font-size:14px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;color:var(--red);display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .b h2 i{font-style:normal;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--red);color:#fff;font-size:11px;letter-spacing:0}
+  ul{list-style:none;display:flex;flex-direction:column;gap:7px}
+  li{font-size:15px;line-height:1.32;padding-left:14px;position:relative}
+  li::before{content:"";position:absolute;left:0;top:8px;width:6px;height:6px;border-radius:50%;background:var(--red)}
+  li b{font-weight:600}
+  li small{display:block;color:var(--muted);font-size:13.5px}
+  .kp{grid-area:kp}.ka{grid-area:ka}.kr{grid-area:kr}.cr{grid-area:cr}.ch{grid-area:ch}.cs{grid-area:cs}.co{grid-area:co}.rv{grid-area:rv}
+  .vp{grid-area:vp;background:var(--tint);border:2px solid var(--red)}
+  .vp .lead{font-family:Montserrat,sans-serif;font-weight:700;font-size:19px;line-height:1.3;margin-bottom:14px}
+  .vp .lead em{font-style:normal;color:var(--red)}
+  .tag{font-size:12px;font-weight:700;letter-spacing:1.6px;text-transform:uppercase;color:var(--muted);margin:10px 0 6px}
+  .tag:first-of-type{margin-top:0}
+  .money{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:2px}
+  .m{border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#fbfaf8}
+  .m .v{font-family:Montserrat,sans-serif;font-weight:800;font-size:22px;color:var(--red);line-height:1.1}
+  .m .v span{font-size:13px;color:var(--ink);font-family:Inter,sans-serif;font-weight:600}
+  .m .l{font-size:13px;color:var(--muted);margin-top:4px;line-height:1.3}
+  .m.dark{background:var(--ink);border-color:var(--ink)}
+  .m.dark .v{color:#fff}.m.dark .v span{color:#ddd}.m.dark .l{color:#bbb}
+  .foot{display:flex;justify-content:space-between;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1><span>TraffiX</span> Business Model Canvas</h1>
+      <div class="sub">Adaptive, explainable traffic signals · a software subscription for public buyers</div>
+    </div>
+    <div class="brand">TRAFFIX</div>
+  </header>
+
+  <div class="grid">
+    <section class="b kp">
+      <h2><i>8</i>Key partners</h2>
+      <ul>
+        <li><b>Signal installers &amp; integrators</b><small>hardware, installation, public tenders</small></li>
+        <li><b>Camera &amp; controller vendors</b><small>we run on their existing equipment</small></li>
+        <li><b>Telecom operators</b><small>connectivity between junctions and the cloud</small></li>
+        <li><b>Donors &amp; funders</b><small>Startup Act, Smart Capital, donor mobility programmes</small></li>
+        <li><b>ESPRIT</b><small>R&amp;D, talent, events, credibility</small></li>
+        <li><b>Transtu, civil protection</b><small>bus and ambulance priority data</small></li>
+      </ul>
+    </section>
+
+    <section class="b ka">
+      <h2><i>7</i>Key activities</h2>
+      <ul>
+        <li><b>Multi-agent software R&amp;D</b><small>junction agents, masters, safety rules</small></li>
+        <li><b>City calibration</b> &amp; per-city model retraining</li>
+        <li><b>Integration</b> with controllers and cameras</li>
+        <li><b>Digital-twin traffic studies</b> (SUMO)</li>
+        <li><b>Sales, tenders</b>, support and training</li>
+      </ul>
+    </section>
+
+    <section class="b kr">
+      <h2><i>6</i>Key resources</h2>
+      <ul>
+        <li><b>Multi-agent platform</b> + hard-coded safety engine</li>
+        <li><b>Trained models</b> (XGBoost, LightGBM) &amp; decision log</li>
+        <li><b>Digital twin</b> of central Tunis</li>
+        <li><b>Team of 6 engineers</b> (→ 15 by year 5)</li>
+        <li><b>Pilot results</b> as a public reference</li>
+      </ul>
+    </section>
+
+    <section class="b vp">
+      <h2><i>2</i>Value proposition</h2>
+      <p class="lead">Adaptive, safe, explainable signals at <em>about ⅓ of competitors' 10-year cost</em>, with evidence before purchase.</p>
+      <ul>
+        <li><b>Adapts every second</b><small>less car waiting than actuated control in 12 of 12 scenarios</small></li>
+        <li><b>Safe by construction</b><small>≤ 0.7 conflicting greens/h vs 900–3,600; rules no AI can override</small></li>
+        <li><b>Emergency &amp; bus priority</b><small>emergency trips 28% faster</small></li>
+        <li><b>Explained decisions</b><small>100% logged, answered in AR / FR / EN</small></li>
+        <li><b>Software on existing hardware</b><small>≈ 36k TND per junction over 10 yrs vs 90–165k</small></li>
+      </ul>
+    </section>
+
+    <section class="b cr">
+      <h2><i>4</i>Customer relationships</h2>
+      <ul>
+        <li><b>Free twin study → paid pilot → multi-year contract</b></li>
+        <li><b>Monthly performance reports</b> (Synapse)</li>
+        <li><b>On-site support</b> &amp; operator training</li>
+        <li><b>Persona apps</b> for operators, drivers, buses, ambulances</li>
+      </ul>
+    </section>
+
+    <section class="b ch">
+      <h2><i>3</i>Channels</h2>
+      <ul>
+        <li><b>Direct sales</b> to cities and ministries</li>
+        <li><b>Public tenders</b> with integrator partners</li>
+        <li><b>Live demos</b> on the city's own junctions</li>
+        <li><b>Donor programmes</b> for Maghreb / Africa</li>
+        <li><b>Events, ESPRIT</b>, free citizen apps</li>
+      </ul>
+    </section>
+
+    <section class="b cs">
+      <h2><i>1</i>Customer segments</h2>
+      <div class="tag">Who pays</div>
+      <ul>
+        <li><b>Municipalities</b><small>Greater Tunis, Sousse, Sfax</small></li>
+        <li><b>Ministries</b><small>transport, interior</small></li>
+      </ul>
+      <div class="tag">Who uses</div>
+      <ul><li>Traffic operators, police</li></ul>
+      <div class="tag">Who benefits</div>
+      <ul><li>Pedestrians, drivers, ambulances, Transtu buses</li></ul>
+      <div class="tag">Later</div>
+      <ul><li>Maghreb &amp; francophone African cities (years 4–5)</li></ul>
+    </section>
+
+    <section class="b co">
+      <h2><i>9</i>Cost structure</h2>
+      <div class="money">
+        <div class="m"><div class="v">≈ 60%</div><div class="l">Team, 6 → 15 people<br>72k → 630k TND / yr</div></div>
+        <div class="m"><div class="v">1.5k <span>TND</span></div><div class="l">Fieldwork per new junction</div></div>
+        <div class="m"><div class="v">≈ 750 <span>TND</span></div><div class="l">Hosting per junction-year on a standard CPU</div></div>
+        <div class="m"><div class="v">0 <span>TND</span></div><div class="l">Licences: open-source stack. Plus marketing, tenders, admin</div></div>
+      </div>
+    </section>
+
+    <section class="b rv">
+      <h2><i>5</i>Revenue streams</h2>
+      <div class="money">
+        <div class="m"><div class="v">60k <span>TND</span></div><div class="l">Pilot corridor, ≈ 7 junctions, 6 months</div></div>
+        <div class="m"><div class="v">6k <span>TND</span></div><div class="l">Setup per junction, one-off</div></div>
+        <div class="m"><div class="v">3k <span>TND/yr</span></div><div class="l">Subscription per junction, ≈ 75% margin</div></div>
+        <div class="m dark"><div class="v">≈ 25k <span>TND</span></div><div class="l">Digital-twin traffic study</div></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="foot">
+    <span>Target: 200 junctions in 5 years (≈ 10% of Tunisia) · ≈ 1.3 MD revenue in year 5 · profitable from year 3, cumulative +238k TND by year 5</span>
+    <span>Numbers in the circles: order to read the canvas</span>
+  </div>
+</div>
+</body>
+</html>
