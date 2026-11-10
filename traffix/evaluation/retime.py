@@ -4,8 +4,8 @@ Plain retiming is what a city can do without any AI (field studies report 15-37%
 than old plans), so beating SUMO's default 90 s plans is not enough. This module builds, for one
 scenario, a fixed-time plan that a traffic engineer would set from counts:
 
-  1. route the scenario's trips with duarouter (the demand file has trips, not routes, and
-     tlsCycleAdaptation can only count flows on routed vehicles);
+  1. run the design seed once under the default plan and record the routes vehicles actually
+     drove (the demand file has trips, not routes, and tlsCycleAdaptation counts flows on routes);
   2. run SUMO's tlsCycleAdaptation.py (Webster's method) on those routes;
   3. keep each junction's own phase structure: walk green + 5 s pedestrian clearance + yellow,
      with walk + clearance long enough for a slow walker to cross the longest crossing.
@@ -86,12 +86,20 @@ def build_plan(scenario, out_dir):
     if not demand_is_current(base):
         from ..demand.generator import DemandGenerator
         DemandGenerator(net).build(scenario, config.scenarios()[scenario], DESIGN_SEED, out_dir)
+    # "count survey": drive the design seed once under the default plan and keep the routes the
+    # vehicles actually took (duarouter's free-flow shortest paths put traffic on the wrong approaches)
     routed = base + ".routed.xml"
     stops = net.replace(".net.xml", ".stops.xml")
-    subprocess.run([os.path.join(SUMO_HOME, "bin", "duarouter"), "-n", net, "-r", base + ".rou.xml",
-                    "-o", routed, "--ignore-errors", "--no-warnings", "--no-step-log"]
+    subprocess.run([os.path.join(SUMO_HOME, "bin", "sumo"), "-n", net, "-r", base + ".rou.xml",
+                    "--vehroute-output", routed, "--vehroute-output.exit-times", "false",
+                    "--ignore-route-errors", "true", "--time-to-teleport", "300",
+                    "--no-warnings", "true", "--no-step-log", "true"]
                    + (["-a", stops] if os.path.exists(stops) else []),
                    check=True, capture_output=True)
+    tree = ET.parse(routed)                         # drop vehicles that never got a route
+    for v in [v for v in tree.getroot().findall("vehicle") if v.find("route") is None]:
+        tree.getroot().remove(v)
+    tree.write(routed)
     raw = base + ".webster_raw.tls.xml"
     subprocess.run([sys.executable, os.path.join(SUMO_HOME, "tools", "tlsCycleAdaptation.py"),
                     "-n", net, "-r", routed, "-b", "0", "-o", raw,
