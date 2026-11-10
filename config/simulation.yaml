@@ -8,16 +8,22 @@ step_length: 1                   # seconds per simulation step
 supermaster_every: 5             # seconds between supermaster decisions
 max_extra_time: 1800             # stop this long after demand ends; vehicles left = unfinished
 seeds: [1, 2, 3]
+occupancy:                       # persons per vehicle, ASSUMED (no Tunis survey yet); used for person-delay
+  car: 1.2                       # typical urban car occupancy
+  bus: 50                        # TRANSTU peak load, assumed; change when Transtu data arrives
+  emergency: 2
 workers: 2                       # parallel simulations (8 GB RAM: keep 2)
 
 controllers:
-  - fixed            # SUMO fixed-time plans
+  - fixed            # SUMO fixed-time plans (default 90 s, not tuned to demand)
+  - fixed_retimed    # Webster-retimed fixed plans from counts: the no-AI baseline a city could do today
   - actuated         # SUMO actuated plans
   - junction_only    # masters + junction agents, no supermaster
   - traffix_rules    # full hierarchy, rule-based fallbacks only (no trained models)
   - traffix          # full hierarchy with trained models (max-pressure traffic lights)
   - traffix_predictive  # same, predictive (MPC) traffic light agent
   - traffix_rl       # same, reinforcement learning traffic light agent
+  - traffix_bus_first   # same as traffix, max-pressure weighted by people (buses count more)
 
 demand:
   base_vehicles_per_hour: 4000   # network inflow when all calendar factors = 1.0 (~300 vehicles at once at peak)

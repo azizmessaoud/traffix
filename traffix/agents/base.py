@@ -52,6 +52,7 @@ class Context:
     log: object
     use_models: bool
     start: datetime         # wall-clock time at simulation second 0
+    bus_first: bool = False # person-weighted pressure: a queued bus counts for its passengers
 
     def clock(self, now):
         return self.start + timedelta(seconds=now)

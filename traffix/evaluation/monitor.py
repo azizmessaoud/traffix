@@ -88,7 +88,8 @@ class Monitor:
             return [float(r.get(attr)) for r in rows]
 
         dur, wait = col(cars, "duration"), col(cars, "waitingTime")
-        co2 = sum(float(t.find("emissions").get("CO2_abs")) for t in cars) / 1000.0  # g
+        co2 = sum(emission(t, "CO2_abs") for t in cars) / 1000.0  # g
+        energy = energy_metrics(cars, buses, ambulances)
         ped_w = [self.ped_wait[p] for p in arrived_peds]
         gaps = [b - a for times in self.bus_passes.values()
                 for a, b in zip(sorted(times), sorted(times)[1:])]
@@ -123,4 +124,46 @@ class Monitor:
             "ambulance_mean_travel_s": mean(col(ambulances, "duration")) if ambulances else None,
             "ambulance_mean_wait_s": mean(col(ambulances, "waitingTime")) if ambulances else None,
             "ambulance_mean_time_loss_s": mean(col(ambulances, "timeLoss")) if ambulances else None,
+            # Bus-First / sustainability (all vehicles; HBEFA proxies, not measured air)
+            **energy,
         }
+
+
+def emission(trip, attr):
+    """One emissions attribute of a tripinfo element (mg; 0 when SUMO wrote none)."""
+    e = trip.find("emissions")
+    return float(e.get(attr, 0)) if e is not None else 0.0
+
+
+def energy_metrics(cars, buses, ambulances):
+    """Person-weighted delay, fuel and CO2 for every finished vehicle.
+
+    Occupancy is an assumption from simulation.yaml > occupancy (no Tunis survey yet).
+    Person-delay is what makes bus priority visible: one bus minute counts as ~50 car minutes
+    divided by car occupancy. SUMO reports fuel_abs and CO2_abs in mg."""
+    occ = config.simulation().get("occupancy", {})
+    car_occ, bus_occ = float(occ.get("car", 1.2)), float(occ.get("bus", 50))
+    groups = ((cars, car_occ), (buses, bus_occ), (ambulances, float(occ.get("emergency", 2))))
+    person_loss = persons = person_km = 0.0
+    fuel_mg = co2_mg = 0.0
+    for rows, k in groups:
+        for t in rows:
+            person_loss += k * float(t.get("timeLoss", 0))
+            persons += k
+            person_km += k * float(t.get("routeLength", 0)) / 1000.0
+            fuel_mg += emission(t, "fuel_abs")
+            co2_mg += emission(t, "CO2_abs")
+    vehicles = len(cars) + len(buses) + len(ambulances)
+    bus_loss = [float(t.get("timeLoss", 0)) for t in buses]
+    bus_stops = [float(t.get("waitingCount", 0)) for t in buses]
+    return {
+        "person_mean_delay_s": person_loss / persons if persons else 0,
+        "person_delay_h": person_loss / 3600.0,
+        "bus_mean_time_loss_s": statistics.mean(bus_loss) if bus_loss else 0,
+        "bus_mean_stops": statistics.mean(bus_stops) if bus_stops else 0,
+        "fuel_total_kg": fuel_mg / 1e6,
+        "fuel_g_per_veh": fuel_mg / 1000.0 / vehicles if vehicles else 0,
+        "co2_total_kg": co2_mg / 1e6,
+        "co2_g_per_person_km": co2_mg / 1000.0 / person_km if person_km else 0,
+        "fuel_g_per_person_km": fuel_mg / 1000.0 / person_km if person_km else 0,
+    }

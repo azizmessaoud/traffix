@@ -49,6 +49,11 @@ class TrafficLightAgent(Agent):
                 p += self.sensors.lane(l.in_lane).halting - self._downstream(l.out_lane)
                 served_edges.add(l.in_edge)
         p += sum(w for e, w in bias.items() if e in served_edges)
+        if self.ctx.bus_first:                         # people, not vehicles: weigh nearby buses
+            bf = self.cfg["bus_first"]
+            p += bf["bus_weight"] * sum(
+                1 for v in self.sensors.approaching.get(self.tls, [])
+                if v.kind == "bus" and v.distance <= bf["detect_distance"] and phase[v.link_index] in "Gg")
         for c in self.m.crossings:
             if self.m.crossing_green(phase, c):
                 p += self.p["ped_weight"] * self.sensors.waiting_at.get(c, (0, 0))[0]

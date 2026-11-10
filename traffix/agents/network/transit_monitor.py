@@ -26,6 +26,7 @@ class TransitMonitorAgent(Agent):
         on_road = {v.id for vs in self.sensors.approaching.values() for v in vs}
         for b in [b for b in self.state if b not in on_road]:
             del self.state[b]                          # bus left the network
+        tracked = []                                   # (tls, bus, gap) for buses with a reference
         for tls, vehicles in self.sensors.approaching.items():
             cur = {v.id: v for v in vehicles if v.kind == "bus"}
             for b, line in self.prev.get(tls, {}).items():
@@ -39,20 +40,23 @@ class TransitMonitorAgent(Agent):
                                         "distance_m": round(v.distance), "speed": round(v.speed, 1),
                                         "upcoming": [[tls, round(v.distance)]] + [[t, round(d)] for t, _, d in v.upcoming]}
                     continue
-                gap = now - last
-                if self.model is not None:
-                    pred = float(self.model.predict([[gap, v.distance, v.speed, v.lane_halting]])[0])
-                else:
-                    pred = gap
-                late = pred > self.factor * self.headway
-                self.state[v.id] = {"line": v.line, "next_junction": tls, "gap_s": round(gap),
-                                    "late": late, "distance_m": round(v.distance),
-                                    "speed": round(v.speed, 1),
-                                    "upcoming": [[tls, round(v.distance)]] + [[t, round(d)] for t, _, d in v.upcoming]}
-                self.bus.publish(Message(self.label, "TRANSIT_STATUS", "all", now, now + 60, v.id,
-                                         details=self.state[v.id]))
-                if late:
-                    self.bus.publish(Message(self.label, "TRANSIT_LATE", "all", now, now + 60, v.id,
-                                             details={"gap": round(gap, 1), "line": v.line}))
-                else:
-                    self.bus.unpublish("TRANSIT_LATE", v.id)
+                tracked.append((tls, v, now - last))
+        # one batched prediction per step: single-row predict calls dominated run time
+        if self.model is not None and tracked:
+            preds = [float(p) for p in self.model.predict(
+                [[gap, v.distance, v.speed, v.lane_halting] for _, v, gap in tracked])]
+        else:
+            preds = [gap for _, _, gap in tracked]
+        for (tls, v, gap), pred in zip(tracked, preds):
+            late = pred > self.factor * self.headway
+            self.state[v.id] = {"line": v.line, "next_junction": tls, "gap_s": round(gap),
+                                "late": late, "distance_m": round(v.distance),
+                                "speed": round(v.speed, 1),
+                                "upcoming": [[tls, round(v.distance)]] + [[t, round(d)] for t, _, d in v.upcoming]}
+            self.bus.publish(Message(self.label, "TRANSIT_STATUS", "all", now, now + 60, v.id,
+                                     details=self.state[v.id]))
+            if late:
+                self.bus.publish(Message(self.label, "TRANSIT_LATE", "all", now, now + 60, v.id,
+                                         details={"gap": round(gap, 1), "line": v.line}))
+            else:
+                self.bus.unpublish("TRANSIT_LATE", v.id)

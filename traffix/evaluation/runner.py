@@ -64,8 +64,12 @@ def run_one(controller, scenario, seed, gui=False, route_dir=GEN, hooks=None, sa
     tripinfo = os.path.join(OUT, "tripinfo", f"{tag}.xml")
     binary = os.path.join(SUMO_HOME, "bin", "sumo-gui" if gui else "sumo")
     stops = nets[0].replace(".net.xml", ".stops.xml")
+    additional = [stops] if os.path.exists(stops) else []
+    if controller == "fixed_retimed":          # Webster plan designed on another seed (retime.py)
+        from .retime import build_plan
+        additional.append(build_plan(scenario, route_dir))
     traci.start([binary, "-n", net, "-r", base + ".rou.xml", "--tripinfo-output", tripinfo]
-                + (["-a", stops] if os.path.exists(stops) else []) + [
+                + (["-a", ",".join(additional)] if additional else []) + [
                  "--device.emissions.probability", "1", "--time-to-teleport", "300",
                  "--ignore-route-errors", "true", "--seed", str(seed),
                  "--no-step-log", "true", "--no-warnings", "true",
@@ -75,7 +79,7 @@ def run_one(controller, scenario, seed, gui=False, route_dir=GEN, hooks=None, sa
     log = DecisionLog(os.path.join(OUT, "logs", f"decisions_{tag}.jsonl") if save_log else None)
     start = datetime.strptime(meta["start"], "%Y-%m-%d %H:%M")
     system = None
-    if controller not in ("fixed", "actuated"):
+    if controller not in ("fixed", "fixed_retimed", "actuated"):
         system = TraffixSystem(controller, models, net, log, start)
         system.start(0)
     world = World(meta["events"], models, system.sensors if system else None)

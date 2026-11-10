@@ -27,6 +27,11 @@ transit:
   detect_distance: 120         # m
   max_extension: 20            # s
 
+bus_first:                     # traffix_bus_first controller only
+  bus_weight: 10               # a bus near the stop line counts as 10 queued cars (a full bus is ~40
+                               # car-equivalents in people; 10 keeps cross streets from starving)
+  detect_distance: 120         # m, same radius as transit priority
+
 emergency:
   detect_distance: 200         # m
   prepare_horizon: 40          # s, route coordinator warns junctions this far ahead

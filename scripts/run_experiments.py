@@ -13,6 +13,10 @@ import csv
 import os
 from multiprocessing import Pool
 
+# One thread per simulation: parallel runs already use every core, and scikit-learn's OpenMP
+# threads fighting over them made traffix runs many times slower. Set before sklearn loads.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import _path  # noqa: F401
 from traffix.core import config
 
@@ -75,6 +79,10 @@ if __name__ == "__main__":
         gen = DemandGenerator(config.network_files()[0])
         for s, seed in stale:
             gen.build(s, sc[s], seed, GEN)
+    if any(c == "fixed_retimed" for c, *_ in jobs):         # build Webster plans once, before workers race
+        from traffix.evaluation.retime import build_plan
+        for s in sorted({s for c, s, *_ in jobs if c == "fixed_retimed"}):
+            build_plan(s, GEN)
     print(f"Running {len(jobs)} simulations" + (f" ({len(done)} already saved in {a.out}, skipped)" if done else ""))
     failures = []
     if a.gui or a.workers <= 1:

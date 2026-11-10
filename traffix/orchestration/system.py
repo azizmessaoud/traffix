@@ -6,6 +6,8 @@ Assembles one controller for one run.
   traffix         full hierarchy with trained models (max-pressure traffic light agent)
   traffix_predictive  same, with the predictive (MPC) traffic light agent
   traffix_rl          same, with the reinforcement learning traffic light agent
+  traffix_bus_first   same as traffix, but max-pressure counts people, not vehicles: a bus waiting
+                      at the light weighs agents.yaml > bus_first > bus_weight queued cars
 (fixed and actuated are SUMO's own plans: no TraffiX objects at all.)
 
 Order inside one simulated second:
@@ -23,11 +25,13 @@ from .supermaster import Supermaster
 
 class TraffixSystem:
     def __init__(self, controller, models, net_file, log, start):
-        use_models = controller in ("traffix", "junction_only", "traffix_predictive", "traffix_rl")
+        use_models = controller in ("traffix", "junction_only", "traffix_predictive", "traffix_rl",
+                                    "traffix_bus_first")
         light = {"traffix_predictive": "predictive", "traffix_rl": "rl"}.get(controller, "max_pressure")
         self.sensors = SensorLayer(models, net_file)
         self.bus = MessageBus()
-        self.ctx = Context(models, self.sensors, self.bus, log, use_models, start)
+        self.ctx = Context(models, self.sensors, self.bus, log, use_models, start,
+                           bus_first=controller == "traffix_bus_first")
         self.safety = SafetyRules(models, self.sensors, self.bus, log)
         self.executor = Executor(models, self.safety, log)
         self.masters = [Master(self.ctx, t, self.safety, self.executor, light) for t in models]
